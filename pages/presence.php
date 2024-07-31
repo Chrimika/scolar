@@ -8,13 +8,30 @@
         .nav-wrapper {
             background-color: #0096D6; /* Bleu ciel plus foncé */
         }
-        .right-align-button {
-            display: flex;
-            justify-content: flex-end;
-            margin-top: 20px;
+        .container {
+            margin-top: 30px;
         }
-        .btn-margin {
-            margin: 0 5px;
+        .action-buttons {
+            display: flex;
+            justify-content: space-evenly; /* Espace égal entre les boutons */
+            align-items: center; /* Centrer les boutons verticalement */
+        }
+        .action-buttons button {
+            margin: 0; /* Éviter les marges pour une meilleure alignement */
+        }
+        .disabled-button {
+            cursor: not-allowed;
+            pointer-events: none; /* Empêche les clics sur le bouton désactivé */
+        }
+        td {
+            text-align: center; /* Centrer le contenu des cellules pour une meilleure présentation */
+        }
+        .counter {
+            font-size: 1.2em;
+            margin-left: 20px;
+        }
+        .counter span {
+            font-weight: bold;
         }
     </style>
 </head>
@@ -32,139 +49,117 @@
 </nav>
 
 <div class="container">
-    <h2>Gestion des Présences</h2>
+    <h2>
+        Gérer les Présences
+        <span class="counter">Arrivées: <span id="arrivees-counter">0</span></span>
+        <span class="counter">Départs: <span id="departs-counter">0</span></span>
+    </h2>
+    
     <?php
     // Connexion à la base de données
     try {
         $pdo = new PDO('mysql:host=localhost;dbname=shoolar', 'root', '');
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-        // Récupérer l'ID de la séance depuis l'URL
-        $seanceId = isset($_GET['seance_id']) ? intval($_GET['seance_id']) : 0;
-
-        // Vérifier si la séance existe
-        $stmt = $pdo->prepare('SELECT * FROM seance WHERE id = :id');
-        $stmt->bindParam(':id', $seanceId);
+        // Vérifier la présence d'une séance pour aujourd'hui
+        $dateCourante = date('Y-m-d');
+        $stmt = $pdo->prepare('SELECT ID_seance FROM seance WHERE date = :date');
+        $stmt->bindParam(':date', $dateCourante);
         $stmt->execute();
         $seance = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if (!$seance) {
-            echo '<script>M.toast({html: "Séance non trouvée.", classes: "rounded"});</script>';
-            exit;
-        }
+        if ($seance) {
+            $ID_seance = $seance['ID_seance'];
 
-        // Récupérer tous les enfants
-        $stmt = $pdo->prepare('SELECT * FROM enfant');
-        $stmt->execute();
-        $enfants = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            // Récupérer tous les enfants
+            $stmt = $pdo->prepare('SELECT * FROM enfant');
+            $stmt->execute();
+            $enfants = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        // Vérifier les présences existantes
-        $stmt = $pdo->prepare('SELECT enfant_id FROM presence WHERE seance_id = :seance_id');
-        $stmt->bindParam(':seance_id', $seanceId);
-        $stmt->execute();
-        $presentEnfants = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            echo '<table class="highlight centered">';
+            echo '<thead><tr><th>Nom</th><th>Prénom</th><th>Actions</th></tr></thead>';
+            echo '<tbody>';
 
-        // Afficher la liste des enfants avec des cases à cocher
-        echo '<form method="POST" action="presence.php">';
-        echo '<input type="hidden" name="seance_id" value="' . $seanceId . '">';
-        foreach ($enfants as $enfant) {
-            $checked = in_array($enfant['id'], $presentEnfants) ? 'checked' : '';
-            echo '<p>
-                    <label>
-                        <input type="checkbox" name="enfants[]" value="' . $enfant['id'] . '" ' . $checked . ' />
-                        <span>' . htmlspecialchars($enfant['nom']) . ' ' . htmlspecialchars($enfant['prenom']) . '</span>
-                    </label>
-                  </p>';
-        }
-        echo '<button class="btn waves-effect waves-light" type="submit" name="action" value="valider">Valider les Présences</button>';
-        echo '</form>';
+            foreach ($enfants as $enfant) {
+                $ID_enfant = $enfant['ID_enfant'];
 
-        // Traitement du formulaire
-        if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['action'] == 'valider') {
-            $enfantsSelectionnes = isset($_POST['enfants']) ? $_POST['enfants'] : [];
-            $seanceId = intval($_POST['seance_id']);
-            $dateCourante = date('Y-m-d H:i:s'); // Heure actuelle pour l'arrivée
-
-            try {
-                $pdo->beginTransaction();
-
-                // Insérer les présences
-                $stmt = $pdo->prepare('INSERT INTO presence (seance_id, enfant_id, heure_arrivee) VALUES (:seance_id, :enfant_id, :heure_arrivee)');
-                foreach ($enfantsSelectionnes as $enfantId) {
-                    $stmt->bindParam(':seance_id', $seanceId);
-                    $stmt->bindParam(':enfant_id', $enfantId);
-                    $stmt->bindParam(':heure_arrivee', $dateCourante);
-                    $stmt->execute();
-                }
-
-                $pdo->commit();
-                echo '<script>M.toast({html: "Présences validées avec succès !", classes: "rounded"});</script>';
-
-                // Rafraîchir la page pour afficher les boutons de départ
-                echo '<script>location.reload();</script>';
-            } catch (PDOException $e) {
-                $pdo->rollBack();
-                echo '<script>M.toast({html: "Erreur : ' . $e->getMessage() . '", classes: "rounded"});</script>';
-            }
-        }
-
-        // Afficher les boutons de départ si des présences ont été validées
-        $stmt = $pdo->prepare('SELECT * FROM presence WHERE seance_id = :seance_id AND heure_arrivee IS NOT NULL AND heure_depart IS NULL');
-        $stmt->bindParam(':seance_id', $seanceId);
-        $stmt->execute();
-        $presences = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        if (!empty($presences)) {
-            echo '<h3>Heure de Départ</h3>';
-            foreach ($presences as $presence) {
-                $enfantId = $presence['enfant_id'];
-                $stmt = $pdo->prepare('SELECT * FROM enfant WHERE id = :id');
-                $stmt->bindParam(':id', $enfantId);
+                // Vérifier la présence actuelle de l'enfant pour la séance du jour
+                $stmt = $pdo->prepare('SELECT * FROM présence WHERE ID_enfant = :ID_enfant AND ID_seance = :ID_seance');
+                $stmt->bindParam(':ID_enfant', $ID_enfant);
+                $stmt->bindParam(':ID_seance', $ID_seance);
                 $stmt->execute();
-                $enfant = $stmt->fetch(PDO::FETCH_ASSOC);
+                $presence = $stmt->fetch(PDO::FETCH_ASSOC);
 
-                echo '<p>
-                        ' . htmlspecialchars($enfant['nom']) . ' ' . htmlspecialchars($enfant['prenom']) . '
-                        <form method="POST" action="presence.php" style="display: inline;">
-                            <input type="hidden" name="presence_id" value="' . $presence['id'] . '">
-                            <button class="btn waves-effect waves-light btn-margin" type="submit" name="action" value="depart">Départ</button>
-                        </form>
-                      </p>';
+                $arriveeDisabled = $presence ? 'disabled-button' : '';
+                $departDisabled = !$presence ? 'disabled-button' : '';
+
+                echo '<tr>';
+                echo '<td>' . htmlspecialchars($enfant['Nom']) . '</td>';
+                echo '<td>' . htmlspecialchars($enfant['Prenom']) . '</td>';
+                echo '<td class="action-buttons">';
+                echo '<button class="btn waves-effect waves-light ' . $arriveeDisabled . '" onclick="arrivee(' . $ID_enfant . ')">Arrivée</button>';
+                echo '<button class="btn waves-effect waves-light ' . $departDisabled . '" onclick="depart(' . $ID_enfant . ')">Départ</button>';
+                echo '</td>';
+                echo '</tr>';
             }
 
-            if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['action']) && $_POST['action'] == 'depart') {
-                $presenceId = intval($_POST['presence_id']);
-                $heureDepart = date('Y-m-d H:i:s'); // Heure actuelle pour le départ
-
-                try {
-                    $stmt = $pdo->prepare('UPDATE presence SET heure_depart = :heure_depart WHERE id = :id');
-                    $stmt->bindParam(':heure_depart', $heureDepart);
-                    $stmt->bindParam(':id', $presenceId);
-
-                    if ($stmt->execute()) {
-                        echo '<script>M.toast({html: "Heure de départ enregistrée avec succès !", classes: "rounded"});</script>';
-                        echo '<script>location.reload();</script>';
-                    } else {
-                        echo '<script>M.toast({html: "Erreur lors de l\'enregistrement de l\'heure de départ.", classes: "rounded"});</script>';
-                    }
-                } catch (PDOException $e) {
-                    echo '<script>M.toast({html: "Erreur : ' . $e->getMessage() . '", classes: "rounded"});</script>';
-                }
-            }
+            echo '</tbody>';
+            echo '</table>';
+        } else {
+            echo '<div class="card-panel red lighten-3">Aucune séance n\'est prévue pour aujourd\'hui.</div>';
         }
     } catch (PDOException $e) {
-        echo '<script>M.toast({html: "Erreur : ' . $e->getMessage() . '", classes: "rounded"});</script>';
+        echo '<script>
+            document.addEventListener("DOMContentLoaded", function() {
+                M.toast({html: "Erreur : ' . $e->getMessage() . '", classes: "rounded"});
+            });
+        </script>';
     }
     ?>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Afficher les toasts stockés dans sessionStorage
+            const toastMessage = sessionStorage.getItem('toastMessage');
+            if (toastMessage) {
+                M.toast({html: toastMessage, classes: "rounded"});
+                sessionStorage.removeItem('toastMessage');
+            }
+
+            // Mettre à jour les compteurs
+            updateCounters();
+        });
+
+        function updateCounters() {
+            fetch('presence_counters.php')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('arrivees-counter').textContent = data.arrivees;
+                    document.getElementById('departs-counter').textContent = data.departs;
+                });
+        }
+
+        function arrivee(ID_enfant) {
+            fetch('presence_action.php?action=arrivee&ID_enfant=' + ID_enfant)
+                .then(response => response.text())
+                .then(result => {
+                    sessionStorage.setItem('toastMessage', result);
+                    location.reload();
+                });
+        }
+
+        function depart(ID_enfant) {
+            fetch('presence_action.php?action=depart&ID_enfant=' + ID_enfant)
+                .then(response => response.text())
+                .then(result => {
+                    sessionStorage.setItem('toastMessage', result);
+                    location.reload();
+                });
+        }
+    </script>
+
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
-        var elems = document.querySelectorAll('select');
-        M.FormSelect.init(elems);
-    });
-</script>
-
 </body>
 </html>

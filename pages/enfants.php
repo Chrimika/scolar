@@ -1,11 +1,30 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Seed - Création d'un Enfant</title>
+    <title>Seed - Liste des Enfants</title>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
     <style>
         .nav-wrapper {
+            background-color: #0096D6; /* Bleu ciel plus foncé */
+        }
+        .container {
+            margin-top: 30px;
+        }
+        .action-buttons {
+            display: flex;
+            justify-content: center;
+        }
+        .action-buttons a {
+            margin: 0 10px;
+        }
+        .fixed-action-btn {
+            position: fixed;
+            bottom: 45px;
+            right: 24px;
+            z-index: 999;
+        }
+        .fixed-action-btn a {
             background-color: #0096D6; /* Bleu ciel plus foncé */
         }
     </style>
@@ -24,146 +43,186 @@
 </nav>
 
 <div class="container">
-    <h2>Créer un Enfant</h2>
-    <form method="POST" action="enfants.php" enctype="multipart/form-data">
-        <div class="input-field">
-            <input id="nom" name="nom" type="text" class="validate" required>
-            <label for="nom">Nom</label>
-        </div>
-        <div class="input-field">
-            <input id="prenom" name="prenom" type="text" class="validate" required>
-            <label for="prenom">Prénom</label>
-        </div>
-        <div class="input-field">
-            <input id="age" name="age" type="number" class="validate" required>
-            <label for="age">Âge</label>
-        </div>
-        <div class="input-field">
-            <input id="niveau" name="niveau" type="text" class="validate" required>
-            <label for="niveau">Niveau</label>
-        </div>
-        <div class="input-field">
-            <input id="tel_urgence" name="tel_urgence" type="text" class="validate" required>
-            <label for="tel_urgence">Téléphone d'Urgence</label>
-        </div>
-        <div class="input-field">
-            <select id="etat_financier" name="etat_financier" required>
-                <option value="" disabled selected>Choisissez l'état financier</option>
-                <option value="Complet">Complet</option>
-                <option value="Incomplet">Incomplet</option>
-            </select>
-            <label for="etat_financier">État Financier</label>
-        </div>
-        <div class="input-field">
-            <select id="id_groupes" name="id_groupes" required>
-                <option value="" disabled selected>Choisissez un groupe</option>
-                <?php
-                try {
-                    $pdo = new PDO('mysql:host=localhost;dbname=shoolar', 'root', '');
-                    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-                    $stmt = $pdo->query('SELECT ID_groupes, numero FROM groupe');
-                    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                        echo '<option value="' . $row['ID_groupes'] . '">' . $row['numero'] . '</option>';
-                    }
-                } catch (PDOException $e) {
-                    echo '<script>M.toast({html: "Erreur : ' . $e->getMessage() . '", classes: "rounded"});</script>';
+    <h2>Liste des Enfants</h2>
+
+    <!-- Affichage des messages -->
+    <?php
+    session_start();
+    if (isset($_SESSION['message'])) {
+        $message = $_SESSION['message'];
+        $message_type = $_SESSION['message_type'];
+        echo "<script>
+            document.addEventListener('DOMContentLoaded', function() {
+                M.toast({html: '$message', classes: 'rounded $message_type'});
+            });
+        </script>";
+        unset($_SESSION['message']);
+        unset($_SESSION['message_type']);
+    }
+    ?>
+
+    <div class="input-field col s12">
+        <select id="groupe-filter">
+            <option value="" disabled selected>Choisir un groupe</option>
+            <?php
+            // Connexion à la base de données
+            try {
+                $pdo = new PDO('mysql:host=localhost;dbname=shoolar', 'root', '');
+                $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+                // Récupérer tous les groupes
+                $stmt = $pdo->prepare('SELECT * FROM groupe');
+                $stmt->execute();
+                $groupes = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                foreach ($groupes as $groupe) {
+                    echo '<option value="' . htmlspecialchars($groupe['ID_groupe']) . '">' . htmlspecialchars($groupe['Nom']) . '</option>';
                 }
-                ?>
-            </select>
-            <label for="id_groupes">Groupe</label>
+            } catch (PDOException $e) {
+                echo '<script>
+                    document.addEventListener("DOMContentLoaded", function() {
+                        M.toast({html: "Erreur : ' . $e->getMessage() . '", classes: "rounded error"});
+                    });
+                </script>';
+            }
+            ?>
+        </select>
+        <label>Filtrer par groupe</label>
+    </div>
+
+    <table class="highlight centered">
+        <thead>
+            <tr>
+                <th>Nom</th>
+                <th>Prénom</th>
+                <th>Âge</th>
+                <th>Niveau</th>
+                <th>Tél. Urgence</th>
+                <th>État Financier</th>
+                <th>Groupe</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="enfants-table">
+            <?php
+            // Fonction pour afficher les enfants
+            function afficherEnfants($pdo, $idGroupe = null) {
+                $sql = 'SELECT enfant.*, groupe.numero AS num_groupe FROM enfant LEFT JOIN groupe ON enfant.ID_groupes = groupe.ID_groupes';
+                if ($idGroupe) {
+                    $sql .= ' WHERE enfant.ID_groupes = :id_groupe';
+                }
+                $sql .= ' ORDER BY enfant.Nom ASC';
+
+                $stmt = $pdo->prepare($sql);
+                if ($idGroupe) {
+                    $stmt->bindParam(':id_groupe', $idGroupe);
+                }
+                $stmt->execute();
+                $enfants = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                foreach ($enfants as $enfant) {
+                    echo '<tr>';
+                    echo '<td>' . htmlspecialchars($enfant['Nom']) . '</td>';
+                    echo '<td>' . htmlspecialchars($enfant['Prenom']) . '</td>';
+                    echo '<td>' . htmlspecialchars($enfant['Age']) . '</td>';
+                    echo '<td>' . htmlspecialchars($enfant['niveau']) . '</td>';
+                    echo '<td>' . htmlspecialchars($enfant['Tel_urgence']) . '</td>';
+                    echo '<td>' . htmlspecialchars($enfant['Etat_financier']) . '</td>';
+                    echo '<td>' . htmlspecialchars($enfant['num_groupe']) . '</td>';
+                    echo '<td class="action-buttons">
+                            <a href="#edit-modal" class="btn-floating btn-small waves-effect waves-light green modal-trigger" data-id="' . htmlspecialchars($enfant['ID_enfant']) . '"><i class="material-icons">edit</i></a>
+                            <a href="#delete-modal" class="btn-floating btn-small waves-effect waves-light red modal-trigger" data-id="' . htmlspecialchars($enfant['ID_enfant']) . '"><i class="material-icons">delete</i></a>
+                          </td>';
+                    echo '</tr>';
+                }
+            }
+
+            // Connexion à la base de données
+            try {
+                $pdo = new PDO('mysql:host=localhost;dbname=shoolar', 'root', '');
+                $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+                // Afficher les enfants sans filtre initialement
+                afficherEnfants($pdo);
+
+            } catch (PDOException $e) {
+                echo '<script>
+                    document.addEventListener("DOMContentLoaded", function() {
+                        M.toast({html: "Erreur : ' . $e->getMessage() . '", classes: "rounded error"});
+                    });
+                </script>';
+            }
+            ?>
+        </tbody>
+    </table>
+
+    <!-- Fixed action button -->
+    <div class="fixed-action-btn">
+        <a href="enfants_ajout.php" class="btn-floating btn-large waves-effect waves-light blue">
+            <i class="material-icons">add</i>
+        </a>
+    </div>
+
+    <!-- Modals -->
+    <!-- Modal for Delete Confirmation -->
+    <div id="delete-modal" class="modal">
+        <div class="modal-content">
+            <h4>Confirmation de Suppression</h4>
+            <p>Êtes-vous sûr de vouloir supprimer cet enfant ?</p>
         </div>
-        <div class="file-field input-field">
-            <div class="btn">
-                <span>Photo</span>
-                <input type="file" name="photo">
-            </div>
-            <div class="file-path-wrapper">
-                <input class="file-path validate" type="text" placeholder="Téléchargez une photo">
-            </div>
+        <div class="modal-footer">
+            <a href="#!" class="modal-close waves-effect waves-red btn-flat">Annuler</a>
+            <a href="#!" id="confirm-delete" class="modal-close waves-effect waves-green btn-flat">Supprimer</a>
         </div>
-        <button class="btn waves-effect waves-light" type="submit" name="action">Créer
-            <i class="material-icons right">send</i>
-        </button>
-    </form>
+    </div>
+
+    <!-- Modal for Edit -->
+    <div id="edit-modal" class="modal">
+        <div class="modal-content">
+            <h4>Modifier Enfant</h4>
+            <p>Chargement des informations de l'enfant...</p>
+        </div>
+        <div class="modal-footer">
+            <a href="#!" class="modal-close waves-effect waves-green btn-flat">Annuler</a>
+            <a href="#!" class="modal-close waves-effect waves-green btn-flat">Sauvegarder</a>
+        </div>
+    </div>
 </div>
 
+<script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        var elems = document.querySelectorAll('select');
-        M.FormSelect.init(elems);
+    $(document).ready(function() {
+        $('select').formSelect();
+        $('.modal').modal();
+
+        $('#groupe-filter').change(function() {
+            var idGroupe = $(this).val();
+            $.ajax({
+                url: 'enfants_filtrer.php',
+                method: 'GET',
+                data: { id_groupe: idGroupe },
+                success: function(response) {
+                    $('#enfants-table').html(response);
+                }
+            });
+        });
+
+        $('.modal-trigger').on('click', function() {
+            var idEnfant = $(this).data('id');
+            if ($(this).hasClass('red')) {
+                $('#confirm-delete').data('id', idEnfant);
+            } else if ($(this).hasClass('green')) {
+                // Logique pour charger les données de l'enfant pour l'édition
+                // TODO: Ajouter le code pour charger et afficher les données de l'enfant dans le formulaire de modification
+            }
+        });
+
+        $('#confirm-delete').on('click', function() {
+            var idEnfant = $(this).data('id');
+            window.location.href = 'enfants_action.php?action=supprimer&id=' + idEnfant;
+        });
     });
 </script>
-
-<?php
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $nom = $_POST['nom'];
-    $prenom = $_POST['prenom'];
-    $age = $_POST['age'];
-    $niveau = $_POST['niveau'];
-    $tel_urgence = $_POST['tel_urgence'];
-    $etat_financier = $_POST['etat_financier'];
-    $id_groupes = $_POST['id_groupes'];
-
-    // Gestion du téléchargement de photo
-    $photo = null;
-    if (isset($_FILES['photo']) && $_FILES['photo']['error'] == UPLOAD_ERR_OK) {
-        $fileTmpPath = $_FILES['photo']['tmp_name'];
-        $fileName = $_FILES['photo']['name'];
-        $fileNameCmps = explode(".", $fileName);
-        $fileExtension = strtolower(end($fileNameCmps));
-        $newFileName = md5(time() . $fileName) . '.' . $fileExtension;
-        $uploadFileDir = __DIR__ . '/uploads/';
-        $dest_path = $uploadFileDir . $newFileName;
-
-        // Crée le répertoire s'il n'existe pas
-        if (!file_exists($uploadFileDir)) {
-            mkdir($uploadFileDir, 0777, true);
-        }
-
-        if (move_uploaded_file($fileTmpPath, $dest_path)) {
-            $photo = $newFileName; // Enregistre seulement le nom du fichier
-        } else {
-            echo '<script>M.toast({html: "Erreur lors du téléchargement de la photo.", classes: "rounded"});</script>';
-        }
-    }
-
-    try {
-        $pdo = new PDO('mysql:host=localhost;dbname=shoolar', 'root', '');
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
-        // Vérifier si l'enfant existe déjà
-        $stmt = $pdo->prepare('SELECT COUNT(*) FROM enfant WHERE Nom = :nom AND Prenom = :prenom');
-        $stmt->bindParam(':nom', $nom);
-        $stmt->bindParam(':prenom', $prenom);
-        $stmt->execute();
-        $count = $stmt->fetchColumn();
-
-        if ($count > 0) {
-            echo '<script>M.toast({html: "Un enfant avec ce nom et prénom existe déjà.", classes: "rounded"});</script>';
-        } else {
-            // Ajouter l'enfant
-            $stmt = $pdo->prepare('INSERT INTO enfant (Nom, Prenom, Age, niveau, Tel_urgence, Etat_financier, ID_groupes, photo) VALUES (:nom, :prenom, :age, :niveau, :tel_urgence, :etat_financier, :id_groupes, :photo)');
-            $stmt->bindParam(':nom', $nom);
-            $stmt->bindParam(':prenom', $prenom);
-            $stmt->bindParam(':age', $age);
-            $stmt->bindParam(':niveau', $niveau);
-            $stmt->bindParam(':tel_urgence', $tel_urgence);
-            $stmt->bindParam(':etat_financier', $etat_financier);
-            $stmt->bindParam(':id_groupes', $id_groupes);
-            $stmt->bindParam(':photo', $photo);
-
-            if ($stmt->execute()) {
-                echo '<script>M.toast({html: "Enfant créé avec succès !", classes: "rounded"});</script>';
-            } else {
-                echo '<script>M.toast({html: "Erreur lors de la création de l\'enfant.", classes: "rounded"});</script>';
-            }
-        }
-    } catch (PDOException $e) {
-        echo '<script>M.toast({html: "Erreur : ' . $e->getMessage() . '", classes: "rounded"});</script>';
-    }
-}
-?>
-
 </body>
 </html>
