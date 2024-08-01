@@ -6,32 +6,54 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
     <style>
         .nav-wrapper {
-            background-color: #0096D6; /* Bleu ciel plus foncé */
+            background-color: #0096D6;
         }
         .container {
             margin-top: 30px;
         }
         .action-buttons {
             display: flex;
-            justify-content: space-evenly; /* Espace égal entre les boutons */
-            align-items: center; /* Centrer les boutons verticalement */
+            justify-content: space-evenly;
+            align-items: center;
         }
-        .action-buttons button {
-            margin: 0; /* Éviter les marges pour une meilleure alignement */
+        .action-buttons button, .action-buttons i {
+            margin: 0;
         }
         .disabled-button {
             cursor: not-allowed;
-            pointer-events: none; /* Empêche les clics sur le bouton désactivé */
+            pointer-events: none;
         }
         td {
-            text-align: center; /* Centrer le contenu des cellules pour une meilleure présentation */
+            text-align: center;
         }
-        .counter {
+        .counterA {
             font-size: 1.2em;
             margin-left: 20px;
+            color: green;
+        }
+        .counterD {
+            font-size: 1.2em;
+            margin-left: 20px;
+            color: red;
         }
         .counter span {
             font-weight: bold;
+        }
+        .entete {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 10px;
+        }
+        .mic-icon {
+            cursor: pointer;
+        }
+        .recording-animation {
+            animation: blink 1s infinite;
+        }
+        @keyframes blink {
+            0% { opacity: 1; }
+            50% { opacity: 0; }
+            100% { opacity: 1; }
         }
     </style>
 </head>
@@ -49,19 +71,19 @@
 </nav>
 
 <div class="container">
-    <h2>
-        Gérer les Présences
-        <span class="counter">Arrivées: <span id="arrivees-counter">0</span></span>
-        <span class="counter">Départs: <span id="departs-counter">0</span></span>
+    <h2 style="text-align: center;">
+        Gérer les Présences <br>
+        <div class="entete">
+            <span class="counterA">Arrivées: <span id="arrivees-counter">0</span></span>
+            <span class="counterD">Départs: <span id="departs-counter">0</span></span>
+        </div>
     </h2>
     
     <?php
-    // Connexion à la base de données
     try {
         $pdo = new PDO('mysql:host=localhost;dbname=shoolar', 'root', '');
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-        // Vérifier la présence d'une séance pour aujourd'hui
         $dateCourante = date('Y-m-d');
         $stmt = $pdo->prepare('SELECT ID_seance FROM seance WHERE date = :date');
         $stmt->bindParam(':date', $dateCourante);
@@ -71,7 +93,6 @@
         if ($seance) {
             $ID_seance = $seance['ID_seance'];
 
-            // Récupérer tous les enfants
             $stmt = $pdo->prepare('SELECT * FROM enfant');
             $stmt->execute();
             $enfants = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -83,7 +104,6 @@
             foreach ($enfants as $enfant) {
                 $ID_enfant = $enfant['ID_enfant'];
 
-                // Vérifier la présence actuelle de l'enfant pour la séance du jour
                 $stmt = $pdo->prepare('SELECT * FROM présence WHERE ID_enfant = :ID_enfant AND ID_seance = :ID_seance');
                 $stmt->bindParam(':ID_enfant', $ID_enfant);
                 $stmt->bindParam(':ID_seance', $ID_seance);
@@ -99,12 +119,18 @@
                 echo '<td class="action-buttons">';
                 echo '<button class="btn waves-effect waves-light ' . $arriveeDisabled . '" onclick="arrivee(' . $ID_enfant . ')">Arrivée</button>';
                 echo '<button class="btn waves-effect waves-light ' . $departDisabled . '" onclick="depart(' . $ID_enfant . ')">Départ</button>';
+                echo '<i class="material-icons mic-icon ' . $departDisabled . '" onclick="recordVoice(' . $ID_enfant . ')">mic</i>';
                 echo '</td>';
                 echo '</tr>';
             }
 
             echo '</tbody>';
             echo '</table>';
+            echo '<!-- Ajouté à la fin du contenu existant dans presence.php -->
+                <div style="text-align: center; margin-top: 20px;margin-bottom: 20px;">
+                    <a href="liste_presences.php" class="btn waves-effect waves-light">Liste Présences</a>
+                </div>
+                ';
         } else {
             echo '<div class="card-panel red lighten-3">Aucune séance n\'est prévue pour aujourd\'hui.</div>';
         }
@@ -119,14 +145,12 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            // Afficher les toasts stockés dans sessionStorage
             const toastMessage = sessionStorage.getItem('toastMessage');
             if (toastMessage) {
                 M.toast({html: toastMessage, classes: "rounded"});
                 sessionStorage.removeItem('toastMessage');
             }
 
-            // Mettre à jour les compteurs
             updateCounters();
         });
 
@@ -154,6 +178,49 @@
                 .then(result => {
                     sessionStorage.setItem('toastMessage', result);
                     location.reload();
+                });
+        }
+
+        function recordVoice(ID_enfant) {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    const mediaRecorder = new MediaRecorder(stream);
+                    const audioChunks = [];
+
+                    mediaRecorder.ondataavailable = event => {
+                        audioChunks.push(event.data);
+                    };
+
+                    mediaRecorder.onstop = () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                        const formData = new FormData();
+                        formData.append('audio', audioBlob);
+                        formData.append('ID_enfant', ID_enfant);
+                        formData.append('action', 'save_voice');
+
+                        fetch('voice_action.php', {
+                            method: 'POST',
+                            body: formData
+                        })
+                        .then(response => response.text())
+                        .then(result => {
+                            sessionStorage.setItem('toastMessage', result);
+                            location.reload();
+                        });
+                    };
+
+                    mediaRecorder.start();
+                    document.querySelector('.mic-icon[onclick="recordVoice(' + ID_enfant + ')"]').classList.add('recording-animation');
+                    M.toast({html: "-- veillez parler", classes: "rounded"});
+                    
+                    setTimeout(() => {
+                        mediaRecorder.stop();
+                        document.querySelector('.mic-icon[onclick="recordVoice(' + ID_enfant + ')"]').classList.remove('recording-animation');
+                    }, 10000);
+                })
+                .catch(error => {
+                    console.error('Erreur d\'enregistrement vocal:', error);
+                    M.toast({html: "Erreur d'enregistrement vocal", classes: "rounded"});
                 });
         }
     </script>
